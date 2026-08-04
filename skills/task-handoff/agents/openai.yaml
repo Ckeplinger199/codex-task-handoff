@@ -1,0 +1,7 @@
+interface:
+  display_name: "Task Handoff"
+  short_description: "Create a clean verified successor task"
+  default_prompt: "Use $task-handoff to replace this task with a verified fresh handoff."
+
+policy:
+  allow_implicit_invocation: true
