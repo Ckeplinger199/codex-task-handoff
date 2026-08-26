@@ -1,115 +1,77 @@
 ---
 name: task-handoff
-description: Create a clean successor for a Codex task by rebuilding a compact, verified handoff from live systems and durable artifacts, then creating, naming, pinning, and confirming the new task while preserving the original as an unpinned archive. Use when the user asks for a task handoff, replacement, rollover, or clean continuation; when unrelated work has contaminated a task; or when growing context makes continued work inefficient. Do not use for a speculative branch that should retain the same history; use a fork for that.
+description: Create a compact, evidence-backed handoff so the current Codex task can continue in a fresh thread without rereading the full conversation. Use when the user asks to hand off, roll over, refresh, replace, or cleanly continue a long or contaminated task, especially to reduce context or token waste. Do not use for an ordinary summary or a speculative branch that should retain the same history; use a fork for that.
 ---
 
 # Task Handoff
 
-Replace accumulated conversation context with a source-grounded operating packet. Preserve the old task for audit and reference.
+Move only the minimum sufficient state into a clean continuation. The handoff should let the successor act immediately without replaying the source conversation.
 
-## Authority Gate
+## Non-negotiables
 
-Create a successor only when the user explicitly asks for a new, replacement, refreshed, or continuation task. Thread creation and pin/title changes are user-visible actions.
+- Do not summarize the whole chat. Include only facts that change the successor's decisions or next action.
+- Do not re-read broad source sets merely to make the handoff feel comprehensive. Verify only drift-prone or ambiguous facts that could make the next action wrong.
+- Preserve the user's scope, exclusions, approvals, and external-action gates. A handoff never expands authority.
+- Never copy credentials, secrets, signed URLs, hidden reasoning, or raw transcripts.
+- Use only tools that are actually available. Do not invent project selection, pinning, reasoning-effort, or thread-directive controls.
+- Use `fork_thread` when the user wants a parallel branch with inherited history. A fork is not a context reset.
+- Never leave two active Goal loops pursuing the same objective.
 
-Treat Gmail, Drive, Sheets, source files, repository state, and named systems of record as authoritative. Conversation history is a routing aid, not proof of current state.
+## Choose the mode
+
+**Artifact only:** Use when the user asks for a handoff packet but has not explicitly asked to create a new task, when task-management tools are unavailable, or when a Goal transfer gate blocks safe successor creation.
+
+**Fresh successor:** Use when the user explicitly asks to replace, roll over, refresh, or continue in a new task; `create_thread` is available; and no Goal transfer gate is active.
+
+**Fork:** Use when the user asks to branch, compare approaches, or preserve the same history. Do not run the clean-handoff workflow unless they also ask for a compact state packet.
 
 ## Workflow
 
-1. Identify the exact scope and strongest stable identifier.
-2. Inspect the current task context and locate durable source artifacts. Before
-   creating anything, capture the source task's actual agent/model and reasoning
-   effort from live task metadata/runtime settings; these are part of the
-   handoff contract, not optional presentation preferences. Also call `get_goal`
-   and capture any unfinished goal's exact objective, status, token budget,
-   source usage, and remaining budget.
-3. Verify drift-prone facts from current primary sources when practical.
-4. Separate confirmed facts, assumptions, open questions, and excluded material.
-5. Build the successor prompt using [references/handoff-template.md](references/handoff-template.md).
-   If the source has an unfinished goal, include a prominent Goal Continuity
-   section with the exact objective and the instruction that the successor must
-   call `create_goal` before doing task work. Do not reduce an inherited goal to
-   ordinary prompt prose.
-6. Call `list_projects` and choose the matching saved project. Prefer a local project environment for operational knowledge work. Do not create a worktree unless the user requests isolation or a specific Git state requires it.
-7. Call `create_thread` with the complete handoff and the source task's exact
-   `model` and reasoning `thinking` values. For example, a source task running
-   Luna extra high must create the successor with `model: gpt-5.6-luna` and
-   `thinking: xhigh`; never allow the app default to select Sol or another
-   agent. If the source settings cannot be determined, stop before replacing
-   the source task. If the destination host does not support the same model and
-   reasoning combination, stop and report the incompatibility rather than
-   silently substituting an agent or effort. When an unfinished source goal is
-   present, the successor's initial prompt must require `create_goal` with the
-   same objective before any other task work. If the source goal was budgeted,
-   pass its positive remaining budget as the successor's `token_budget`; if it
-   was unbudgeted, omit `token_budget`. Preserve the source goal status, usage,
-   and any blocker as handoff context rather than resetting or hiding them.
-8. Give the successor a short identifier-first title with `set_thread_title`.
-9. Pin the successor with `set_thread_pinned`.
-10. Rename the source task to `ARCHIVE - <prior title or scope>` and unpin it.
-11. Do not call `set_thread_archived` merely because the title says archive. App-archive only when the user explicitly asks to hide/archive the task.
-12. Confirm startup with one `read_thread` or bounded `wait_threads` check. Verify
-   the title, target project, active/ready state, presence of the handoff, and
-   that the successor retained the source model and reasoning effort. If an
-   unfinished goal was inherited, verify the successor's first-turn setup shows
-   that `create_goal` was called with the inherited objective. Do not repeatedly
-   poll unchanged state.
-13. Return a concise receipt and emit the required `::created-thread{threadId="..."}` directive.
+1. State the exact objective, completion condition, and one exact next action.
+2. Capture current durable state with the fewest useful reads:
+   - For repository work, record the absolute workspace path, branch, exact `HEAD`, concise working-tree status, changed files, and validation already run. Reference large diffs instead of copying them.
+   - Call `get_goal` once when that tool is available. Record an unfinished Goal's exact objective, status, usage, remaining token budget, and blocker. Do not infer a Goal when none exists.
+   - Read external systems only when the active task depends on a fact whose current value materially affects the next action.
+3. Classify Goal transfer safety before creating another task:
+   - **No Goal or complete:** continue normally.
+   - **Active:** write the artifact, but do not call `create_thread` and do not rename the source. Return the exact instruction `/goal pause`, plus a copy-ready rerun request. The source Goal must be paused before transfer so it cannot continue alongside the successor.
+   - **Paused or blocked:** transfer is allowed. Add `## Goal Continuity` with the exact objective and status. Preserve the blocker. If the Goal was budgeted, transfer only its positive remaining budget; if unbudgeted, omit `token_budget`.
+   - **Budget-limited, usage-limited, or budgeted with no positive remaining budget:** write the artifact, but do not create a successor Goal or silently remove the limit. Stop until the user explicitly authorizes a new/increased budget or the usage limit clears.
+   - **Missing or conflicting Goal fields:** use artifact-only mode and name the gap. Do not guess.
+4. Write the packet using [references/handoff-template.md](references/handoff-template.md). Omit empty sections. Target 350-900 words; exceed 1,500 words only when exact technical state genuinely requires it.
+5. Resolve this skill's directory from the loaded `SKILL.md` path. Create the temporary packet with `mktemp` outside the workspace, store it with `scripts/store_handoff.py`, then remove the temporary file. Do not assume a fixed skill-install location.
 
-## Evidence Rules
+   ```bash
+   packet="$(mktemp)"
+   # Write the completed packet to "$packet".
+   python3 "<skill-dir>/scripts/store_handoff.py" \
+     --title "<short scope title>" \
+     --cwd "$PWD" \
+     --input "$packet"
+   rm -f "$packet"
+   ```
 
-- Record the source and successor agent/model plus reasoning effort in the
-  internal receipt. A successor using the app default is not a valid refresh
-  when the source task used an explicit agent or effort.
-- Record whether the source had an unfinished goal, its exact objective and
-  remaining budget, and whether the successor recreated that goal. A goal merely
-  quoted in the prompt is not proof of goal continuity.
-- Include stable absolute local paths for files actually used.
-- Include canonical Gmail, Drive, Docs, Sheets, or other stable record URLs and useful IDs.
-- Include attachment filenames and parent-message links when a document lives inside email.
-- Never use expiring signed download URLs as durable locations.
-- State the verification date for current prices, status, inventory, schedules, or commitments.
-- Preserve exact identifiers, quantities, totals, units, specifications, owners, dates, and formulas that control future work.
-- Reconcile totals visibly. Do not leave unexplained remainders.
-- Mark historical artifacts as historical when they remain useful but are no longer authoritative.
-- Keep sensitive internal details in an internal handoff; retain existing external-disclosure gates.
+   The script writes atomically to a private per-workspace directory under `$CODEX_HOME/task-handoffs` or `~/.codex/task-handoffs`, validates the packet, and returns JSON containing the absolute path, SHA-256 digest, and a bootstrap prompt. Use `--workspace-local` only when the successor cannot access the user-level store; never stage or commit that local handoff unless the user explicitly asks.
+6. Treat the returned bootstrap prompt as the complete successor prompt. Do not paste the full packet into `create_thread`.
+7. For a fresh successor:
+   - Call `create_thread` exactly once with the bootstrap prompt and a short identifier-first title.
+   - Omit `model` unless the user explicitly requested an override. Current Codex task creation inherits the source workspace/project and current model; do not pass unsupported fields such as `thinking`.
+   - Do not call nonexistent project-selection or pinning tools.
+   - Confirm startup with one bounded `read_thread` call, or one immediate `wait_threads` snapshot when reading is unavailable. Verify the thread ID, title, workspace, status, and that the bootstrap references the exact handoff path. Do not poll unchanged state.
+   - Only after confirmation, rename the source task to `ARCHIVE — <short scope>` with `set_thread_title` while omitting `threadId`. Do not app-archive or hide the calling task.
+8. When the packet contains `## Goal Continuity`, the bootstrap must tell the successor to call `create_goal` with the exact objective before other task work. Pass `token_budget` only for a previously budgeted Goal with a positive recorded remainder. The handoff file, not ordinary prose memory, is the source of truth for those values.
+9. If successor creation fails, do not retry blindly. Leave the source title/archive state unchanged, preserve the handoff artifact, and return the exact failure plus the copy-ready bootstrap prompt.
 
-## Scope Hygiene
+## Quality bar
 
-Add a prominent contamination warning when the source task contains adjacent projects, mistaken chat content, superseded vendors, or conflicting requirements.
+A good handoff contains enough evidence to continue, but no generic history. It must distinguish confirmed state from unknowns, identify completed work without claiming unverified success, preserve exact file/commit/test facts, and end with one executable next action.
 
-Move only information needed to continue the selected objective. Do not copy:
+## Completion receipt
 
-- unrelated conversation history
-- hidden reasoning or raw transcripts
-- superseded facts without a historical label
-- credentials, secrets, signed URLs, or unnecessary personal data
-- generic narrative that can be recovered from the sources
+Report only:
 
-## Relationship To Other Mechanisms
-
-- **Fork:** retain completed source history and explore another branch. It does not clean accumulated context.
-- **Manual task handoff with this skill:** rebuild state from evidence into a clean successor and preserve the original as an archive.
-- **Context Relay:** automatic threshold-driven continuation. Check its queue/status before manual creation when it may already own an idempotent successor job; do not create duplicates.
-
-## Failure Handling
-
-Stop before replacing the task when:
-
-- the target project cannot be identified safely
-- key identifiers or source locations conflict
-- a queued Context Relay job already covers the same continuation
-- the source task cannot be distinguished from an adjacent project
-- an unfinished source goal cannot be read precisely enough to recreate
-  safely, including its objective or remaining budget when budgeted
-
-If some evidence is unavailable but work can still continue safely, label the gap in the handoff and make the successor's first action verify it.
-
-## Completion Evidence
-
-Report:
-
-- successor title and thread ID
-- target project/environment
-- source task's new archive title and pin state
-- whether the successor startup was confirmed
-- material evidence gaps, if any
+- handoff title, absolute path, and SHA-256 prefix
+- successor thread ID and startup status, when created
+- source rename/archive state, when changed
+- Goal continuity or transfer-gate status, when applicable
+- material evidence gaps or the exact creation failure

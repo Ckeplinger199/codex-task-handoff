@@ -1,75 +1,69 @@
-# Successor Handoff Template
+# Compact Handoff Template
 
-Use only sections relevant to the work. Prefer compact tables or flat bullets over narrative.
+Use only sections that affect continuation. Prefer terse bullets, exact identifiers, and command/result pairs over narrative. Do not copy conversation history or large diffs.
+
+# Task Handoff: <short title>
 
 ## Objective
 
-State the exact outcome the successor owns and what completion means.
+- **Outcome:** <exact end state>
+- **Done when:** <observable proof or stopping condition>
 
-## Goal Continuity (only when the source task has an unfinished goal)
+## Current State
 
-- Exact source goal objective
-- Source goal status, prior usage, and remaining token budget
-- The successor must call `create_goal` with the inherited objective before doing task work
-- If budgeted, use the positive remaining budget as `token_budget`; if unbudgeted, omit it
-- Preserve any source blocker or status transition as context; do not claim the goal is complete
+- **Workspace:** <absolute path or named environment>
+- **Git:** <branch>; `HEAD <full SHA>`; <clean/dirty and exact changed files>
+- **Completed:** <only work supported by evidence>
+- **Validation:** `<command>` → <result>; note anything not run
+- **Current blocker:** <omit when none>
 
-## Scope And Boundaries
+For non-repository work, replace Git details with the durable system, document, record, or artifact state that controls the next action.
 
-- Included work
-- Explicit exclusions
-- External-action permissions and gates
-- Critical contamination warning
+## Decisions and Boundaries
 
-## Confirmed Current State
+- <decision or convention the successor must preserve>
+- <explicit exclusions and out-of-scope work>
+- <write/send/deploy/purchase or other external-action authorization boundary>
+- <source precedence or currentness rule, only when material>
 
-For each fact, retain the exact identifier, owner, date, status, quantity, specification, value, or location needed to continue. Include the verification date for drift-prone facts.
+## Goal Continuity
 
-## Decisions And Conventions
+Include this section only when an unfinished Goal is safe to transfer: the source Goal is paused or blocked and any budgeted Goal has a positive remaining budget, or the user explicitly authorized a positive replacement budget after a budget limit. Do not include it for an active, usage-limited, unauthorized budget-limited, or ambiguous Goal.
 
-Capture choices that future work must preserve, such as:
+- **Status:** <paused, blocked, or explicitly re-budgeted>
+- **Objective:** <exact objective>
+- **Prior usage:** <reported usage>
+- **Remaining token budget:** <positive integer, or unbudgeted>
+- **Blocker:** <preserve when blocked>
+- **Successor setup:** Call `create_goal` with the exact objective before any other task work. Include `token_budget` only when the source Goal was budgeted, using the positive remaining budget.
 
-- formulas and calculation conventions
-- naming or customer-facing wording
-- approved substitutions
-- source precedence
-- delivery, pricing, or margin treatment
-- read-only versus authorized writes
+## Transfer Gate
 
-## Workstreams
+Use instead of Goal Continuity when successor creation must stop.
 
-For each active workstream or counterparty:
+- **Reason:** <active Goal, exhausted budget, usage limit, conflicting state, or unavailable required evidence>
+- **Required user action:** <for an active Goal: run `/goal pause`, then rerun `$task-handoff`>
+- **Successor created:** no
 
-- current confirmed state
-- last material action
-- owner/contact
-- committed or target date
-- exact next action
-- blocker or uncertainty
+## Remaining Work
 
-## Numbers And Reconciliation
+1. <next required step and expected evidence>
+2. <later step only if it is already known and material>
 
-List itemized quantities, unit values, extended values, subtotals, freight, fees, margin treatment, and final total. Explain every difference from an earlier version.
+## Exact Next Action
 
-## Authoritative Sources
+<One bounded action or command the successor should perform first. Do not say "review everything" or "continue where we left off.">
 
-List each source used:
+## Evidence
 
-1. Stable absolute local path or canonical live URL
-2. File/message/document ID and title
-3. What the source proves
-4. Whether it is current or historical
+- `<stable path, commit, issue, URL, message/document ID, or artifact>` — <what it proves>
+- Mark stale or historical evidence explicitly. Never include expiring signed URLs.
 
-For email attachments, include both the attachment filename and stable parent-message URL.
+## Risks and Unknowns
 
-## Open Actions
+- **Unverified:** <fact that still needs checking>
+- **Risk:** <specific failure mode and stop condition>
 
-Order by urgency and dependency. Each action should identify the actor, expected evidence, and stop condition.
+## Excluded Context
 
-## Risks And Unknowns
-
-Separate unverified, stale, disputed, and blocked facts. Do not phrase them as confirmed.
-
-## Starting Check
-
-Give the successor one bounded first action that refreshes the most important current state. Keep external systems read-only unless the user already authorized a specific write.
+- <adjacent project, superseded attempt, mistaken chat content, or irrelevant history that must not leak into the successor>
