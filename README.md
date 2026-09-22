@@ -1,58 +1,35 @@
 # Codex Task Handoff
 
-A compact Codex skill for moving a long or contaminated task into a clean successor without replaying the entire conversation.
+A local, skill-assisted way to compare a fresh Codex task with staying in the current one, then prepare a compact continuation when the user asks for it. It is a skill and three standard-library Python helpers; it does not monitor the desktop, intercept compaction, create tasks in the background, or guarantee cache visibility. The transfer journal uses POSIX `fcntl` locking on macOS and Linux.
 
-The skill records the minimum sufficient state in a private, content-addressed handoff file, starts a successor with a sub-1,000-byte bootstrap prompt when Codex task tools are available, verifies startup once, and leaves the original task available as an audit trail.
+The packet holds a small current-state capsule and stable references. A private journal records one transfer per source task before creation, distinguishes queued client IDs from real task IDs, and requires a successor ACK before the source calls the transfer complete. Original tasks remain intact. The skill uses the current task API schema and checks destination access and Git state before task creation.
 
-## Why this version works
+## Install and invoke
 
-The earlier version tried to pass the full handoff directly into task creation and depended on task controls that current Codex does not expose. This version follows the current task-tool contract:
-
-- `create_thread` receives only a compact bootstrap and inherits the current workspace/project and model by default.
-- The full handoff lives in a durable local file, so successor creation stays below the prompt-size limit.
-- There is no dependency on project-selection, pin/unpin, or reasoning-effort arguments.
-- Thread creation happens once, startup verification happens once, and failures do not trigger blind duplicate retries.
-- An active Goal must be paused before transfer, preventing the source and successor from burning tokens on the same objective at once.
-- Budget- or usage-limited Goals are never silently restarted without their limit.
-
-## Install
-
-In Codex, invoke `$skill-installer` and ask it to install:
-
-- repository: `Ckeplinger199/codex-task-handoff`
-- path: `skills/task-handoff`
-
-Codex discovers newly installed skills automatically. Restart Codex only if the skill does not appear.
-
-## Use
+Install `skills/task-handoff` with Codex's skill installer. To request a fresh task:
 
 ```text
 $task-handoff Roll this task into a clean successor and continue from the exact next action.
 ```
 
-For a packet without creating a new task:
+For a successor in this exact saved project checkout, say so explicitly:
 
 ```text
-$task-handoff Create a compact handoff artifact only; do not create or rename any task.
+$task-handoff Continue this task in a fresh task using this same saved project checkout and its current dirty files.
 ```
 
-For a parallel branch that should retain the same history, use a fork instead of this skill.
+For just the packet:
 
-When the source task has an active Goal, the skill intentionally stops after creating the durable artifact. Run `/goal pause`, then invoke `$task-handoff` again. This is a safety feature: current Goal tools can read or complete/block a Goal, but they cannot safely pause the calling Goal on the user's behalf.
+```text
+$task-handoff Create a compact handoff artifact only.
+```
 
-## Behavior
+The skill's 1,000-byte bootstrap target is a local concision choice, not a platform prompt limit. Packet byte counts are real; token counts are estimates. Local files are not assumed accessible from another host or cloud task. No hidden reasoning, secrets, raw transcripts, or expiring signed URLs belong in a packet.
 
-- Captures objective, current state, exact Git/workspace facts, completed work, validation, boundaries, remaining work, and one exact next action.
-- Reads live systems only when a drift-prone fact would materially change the continuation.
-- Preserves safely transferable unfinished Goal state when Goal tools are available.
-- Stores handoffs under `$CODEX_HOME/task-handoffs` or `~/.codex/task-handoffs` with private file permissions.
-- Falls back to a copy-ready bootstrap prompt when task-management tools are unavailable or a transfer gate is active.
-- Never archives/hides the calling task and never renames it before the successor is confirmed.
+## Usage and verification
 
-## Repository layout
+See the [installable usage guide](skills/task-handoff/references/usage-guide.md) for the decision JSON format, transfer commands, recovery procedure, and comparison protocol. The guide ships with the skill.
 
-- `skills/task-handoff/SKILL.md` — operating instructions and safety gates
-- `skills/task-handoff/references/handoff-template.md` — minimum-sufficient state template
-- `skills/task-handoff/scripts/store_handoff.py` — atomic private storage and bootstrap generation
-- `skills/task-handoff/agents/openai.yaml` — Codex UI metadata and invocation policy
-- `tests/` — helper and runtime-contract regression tests
+## Development
+
+No third-party packages are required. Run `python3 -m unittest discover -s tests -v`. CI uses the same discovery command on Python 3.12.

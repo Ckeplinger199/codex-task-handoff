@@ -1,77 +1,43 @@
 ---
 name: task-handoff
-description: Create a compact, evidence-backed handoff so the current Codex task can continue in a fresh thread without rereading the full conversation. Use when the user asks to hand off, roll over, refresh, replace, or cleanly continue a long or contaminated task, especially to reduce context or token waste. Do not use for an ordinary summary or a speculative branch that should retain the same history; use a fork for that.
+description: Prepare a compact, verified continuation for a Codex task when the user requests a fresh task or when a safe-boundary cost comparison recommends one. Preserves exact scope, local state, and transfer identity without replaying the full conversation.
 ---
 
 # Task Handoff
 
-Move only the minimum sufficient state into a clean continuation. The handoff should let the successor act immediately without replaying the source conversation.
+This skill reacts when invoked. It does not monitor usage, intercept desktop compaction, create tasks automatically, or see private cache state. A fresh task is created only when the user explicitly asks for one. For ordinary continuation, stay in the current task. Use `fork_thread` when the user wants a parallel branch with history.
 
-## Non-negotiables
+## Safety and authority
 
-- Do not summarize the whole chat. Include only facts that change the successor's decisions or next action.
-- Do not re-read broad source sets merely to make the handoff feel comprehensive. Verify only drift-prone or ambiguous facts that could make the next action wrong.
-- Preserve the user's scope, exclusions, approvals, and external-action gates. A handoff never expands authority.
-- Never copy credentials, secrets, signed URLs, hidden reasoning, or raw transcripts.
-- Use only tools that are actually available. Do not invent project selection, pinning, reasoning-effort, or thread-directive controls.
-- Use `fork_thread` when the user wants a parallel branch with inherited history. A fork is not a context reset.
-- Never leave two active Goal loops pursuing the same objective.
+- Preserve objective, exact next action, approvals, exclusions, and external-write gates. A handoff adds no authority.
+- Never copy hidden reasoning, raw transcripts, credentials, secrets, or signed URLs.
+- Use only available runtime tools. Never infer task state from title alone.
+- Do not transfer with active tools, uncertain writes, or a running Goal. `update_goal(status="paused")` requires an explicit user pause request. Respect budget and usage limits. A blocked Goal cannot be restarted without explicit resume direction; a fresh task is not a way around a limit.
+- Preserve the source task and title by default. No automatic archive or rename.
+- Treat an inaccessible local packet on a remote/cloud host as a stop: show a copy-ready safe packet or select a reachable destination explicitly. Do not assume cross-host shared storage.
 
-## Choose the mode
+## Decide whether to suggest a transfer
 
-**Artifact only:** Use when the user asks for a handoff packet but has not explicitly asked to create a new task, when task-management tools are unavailable, or when a Goal transfer gate blocks safe successor creation.
+At a natural safe boundary, optionally run `scripts/decide_handoff.py` with caller-supplied JSON. It reports `stay`, `recommend`, or `unknown`; `recommend` is advice, not authorization to create a task. Input includes a declared common `rate_unit`, one rate basis for both paths, a short forecast horizon, and the boundary fields. If the successor's model or billing basis differs or is unknown, do not use this single-rate estimate to assert a recommendation. `forecast.stay` and `forecast.fresh` are lists of per-turn stages (`turns`, `input_tokens`, `cached_input_tokens`, `output_tokens`), allowing a cold first turn and warm later turns. Include fixed instructions and tool overhead in each relevant stage. `forecast.transfer` includes packet generation, bootstrap, and packet read; `forecast.recovery` includes expected repeated work. `cached_input_tokens` is a subset of `input_tokens`. Unknown rates or forecasts yield `unknown`. Do not convert API cost estimates into subscription usage percentages or present a forecast as measured savings. See [the usage guide](references/usage-guide.md) for input and comparison protocol, including limitations for additional billing charges.
 
-**Fresh successor:** Use when the user explicitly asks to replace, roll over, refresh, or continue in a new task; `create_thread` is available; and no Goal transfer gate is active.
+## Build a small packet
 
-**Fork:** Use when the user asks to branch, compare approaches, or preserve the same history. Do not run the clean-handoff workflow unless they also ask for a compact state packet.
+1. Capture the outcome, completion proof, exact next action, decisions and approvals, completed proof, dirty work, unresolved operations, and stable references. Use [the template](references/handoff-template.md). Do not dump full history or repeatedly rewrite the packet each turn.
+2. For code work, record source workspace, branch, exact HEAD, dirty paths, and affected check results. Verify drift-prone external facts only if the next action depends on them. Check `get_goal` if available and relevant; record status and limits accurately.
+3. Store once with `scripts/store_handoff.py --title <title> --cwd <absolute-source-workspace> --input <packet-file>`. It returns path, SHA-256, actual byte count and a concise bootstrap. Default storage is private under `$CODEX_HOME/task-handoffs` or `~/.codex/task-handoffs`. `--workspace-local` is explicit; never commit packets containing private evidence. The 1,000-byte bootstrap target is this helper's concision target, not a Codex platform limit. Packet bytes are measured; any token count is an estimate.
+4. If the user asked only for an artifact, return the path and hash. If task tools or exact destination access are unavailable, return a copy-ready prompt and the limitation.
 
-## Workflow
+## Create a fresh successor when explicitly requested
 
-1. State the exact objective, completion condition, and one exact next action.
-2. Capture current durable state with the fewest useful reads:
-   - For repository work, record the absolute workspace path, branch, exact `HEAD`, concise working-tree status, changed files, and validation already run. Reference large diffs instead of copying them.
-   - Call `get_goal` once when that tool is available. Record an unfinished Goal's exact objective, status, usage, remaining token budget, and blocker. Do not infer a Goal when none exists.
-   - Read external systems only when the active task depends on a fact whose current value materially affects the next action.
-3. Classify Goal transfer safety before creating another task:
-   - **No Goal or complete:** continue normally.
-   - **Active:** write the artifact, but do not call `create_thread` and do not rename the source. Return the exact instruction `/goal pause`, plus a copy-ready rerun request. The source Goal must be paused before transfer so it cannot continue alongside the successor.
-   - **Paused or blocked:** transfer is allowed. Add `## Goal Continuity` with the exact objective and status. Preserve the blocker. If the Goal was budgeted, transfer only its positive remaining budget; if unbudgeted, omit `token_budget`.
-   - **Budget-limited, usage-limited, or budgeted with no positive remaining budget:** write the artifact, but do not create a successor Goal or silently remove the limit. Stop until the user explicitly authorizes a new/increased budget or the usage limit clears.
-   - **Missing or conflicting Goal fields:** use artifact-only mode and name the gap. Do not guess.
-4. Write the packet using [references/handoff-template.md](references/handoff-template.md). Omit empty sections. Target 350-900 words; exceed 1,500 words only when exact technical state genuinely requires it.
-5. Resolve this skill's directory from the loaded `SKILL.md` path. Create the temporary packet with `mktemp` outside the workspace, store it with `scripts/store_handoff.py`, then remove the temporary file. Do not assume a fixed skill-install location.
+1. Inspect the current `create_thread` schema. Call `list_projects` to resolve the exact saved project and its `isGitRepository` value. Choose `target:{type:"project",projectId,environment:{type:"local"}}` for an explicitly authorized same-checkout continuation. For an isolated Git worktree use `environment:{type:"worktree",startingState:...}` only with an exact authorized source state; the default worktree starts from the project's default branch and does not carry dirty files. Use projectless or cloud only when the user requested that destination and packet access is established. Resolve routine project/destination details from the active task; stop if identity or dirty-state preservation is uncertain.
+2. Run `transfer_handoff.py prepare` with packet path, source host/task IDs and actual source workspace. For an explicitly chosen same checkout, use `--target-kind local --expected-workspace <same absolute path>`. For a worktree with a path assigned later, use `--target-kind worktree --project-id <exact project> --starting-ref <exact source ref>` and omit `--expected-workspace` until ready. It writes a uniquely bound journal in the stable user-level transfer registry and returns a self-contained bootstrap with the helper path and ACK command. The journal binds one source task to one packet even if packet files move between directories. Check the measured bootstrap byte count; the concision target is not a gate.
+3. Run `transfer_handoff.py creating --state <journal>` **before** the single `create_thread` call. Send the transfer bootstrap; omit `model` by default (this uses the user's configured default, not necessarily the source model). Set `thinking` only on explicit user instruction. A task creation response may be `threadId` and `hostId`, or a queued `clientThreadId`.
+4. Immediately record the exact response with `ready --thread-id ... --host-id ...` or `pending --client-id ...`. For an unresolved worktree path, bind `ready --workspace <actual absolute path>` only after authoritative task readback; if the path is unavailable, remain pending/uncertain. For an uncertain response use `uncertain --error ...`; for a definite failure use `error --error ...`. Never blindly call `create_thread` again. An uncertain state may be reconciled to pending or ready from a later authoritative receipt. A queued client ID is not a real thread ID and must not be sent to `read_thread` or `wait_threads`. When resolving pending, pass its original `--client-id` to `ready` along with the real ID and host. Reconcile from authoritative app state or a later provider receipt with a bounded wait; if no mapping is available, leave `pending`. A title match alone is insufficient.
+5. Emit the runtime's `::created-thread{threadId="..."}` or `::created-thread{clientThreadId="..."}` directive when creation succeeds or queues. For a real ID, use one bounded `wait_threads` or `read_thread` check with that ID and host to observe startup. Task creation is not continuation success.
+6. The successor follows the bootstrap without needing this skill loaded: read the packet, verify SHA-256, actual workspace and Git/dirty facts, preserve Goal constraints and approvals, and inspect the journal. Check up to three times within 30 seconds for `ready` if source receipt recording races startup. Then run the bootstrap's `ack` command with its **own actual** task and host IDs, workspace and packet's Exact Next Action **before** doing that action. The helper rejects mismatches and writes a machine-readable ACK. If journal remains pending/creating or file access fails, stop; do not continue from guessed state.
+7. If the successor stopped only because its bounded startup wait elapsed, establish `ready` first, then send one follow-up to that same verified task ID to recheck the journal and finish its existing bootstrap. Never create a replacement or blindly repeat completed work. If follow-up is unavailable, provide a copy-ready continuation for that exact task.
+8. The source runs `transfer_handoff.py verify --state <journal>` and confirms the ACK and successor identity. Report transfer complete only then. An ACK is local evidence of successor preparation; it is not provider readback or proof that remaining work is finished. Preserve the source and provide exact pending/uncertain state when verification cannot finish.
 
-   ```bash
-   packet="$(mktemp)"
-   # Write the completed packet to "$packet".
-   python3 "<skill-dir>/scripts/store_handoff.py" \
-     --title "<short scope title>" \
-     --cwd "$PWD" \
-     --input "$packet"
-   rm -f "$packet"
-   ```
+## Goal continuity
 
-   The script writes atomically to a private per-workspace directory under `$CODEX_HOME/task-handoffs` or `~/.codex/task-handoffs`, validates the packet, and returns JSON containing the absolute path, SHA-256 digest, and a bootstrap prompt. Use `--workspace-local` only when the successor cannot access the user-level store; never stage or commit that local handoff unless the user explicitly asks.
-6. Treat the returned bootstrap prompt as the complete successor prompt. Do not paste the full packet into `create_thread`.
-7. For a fresh successor:
-   - Call `create_thread` exactly once with the bootstrap prompt and a short identifier-first title.
-   - Omit `model` unless the user explicitly requested an override. Current Codex task creation inherits the source workspace/project and current model; do not pass unsupported fields such as `thinking`.
-   - Do not call nonexistent project-selection or pinning tools.
-   - Confirm startup with one bounded `read_thread` call, or one immediate `wait_threads` snapshot when reading is unavailable. Verify the thread ID, title, workspace, status, and that the bootstrap references the exact handoff path. Do not poll unchanged state.
-   - Only after confirmation, rename the source task to `ARCHIVE — <short scope>` with `set_thread_title` while omitting `threadId`. Do not app-archive or hide the calling task.
-8. When the packet contains `## Goal Continuity`, the bootstrap must tell the successor to call `create_goal` with the exact objective before other task work. Pass `token_budget` only for a previously budgeted Goal with a positive recorded remainder. The handoff file, not ordinary prose memory, is the source of truth for those values.
-9. If successor creation fails, do not retry blindly. Leave the source title/archive state unchanged, preserve the handoff artifact, and return the exact failure plus the copy-ready bootstrap prompt.
-
-## Quality bar
-
-A good handoff contains enough evidence to continue, but no generic history. It must distinguish confirmed state from unknowns, identify completed work without claiming unverified success, preserve exact file/commit/test facts, and end with one executable next action.
-
-## Completion receipt
-
-Report only:
-
-- handoff title, absolute path, and SHA-256 prefix
-- successor thread ID and startup status, when created
-- source rename/archive state, when changed
-- Goal continuity or transfer-gate status, when applicable
-- material evidence gaps or the exact creation failure
+If a Goal is active, do not create a duplicate running Goal. If the user explicitly paused it, preserve its objective and remaining budget in the packet. Only set up a new Goal if the user explicitly requested continuation and its original limits permit it. `create_goal` cannot coexist with another unfinished Goal in that task. Never auto-restart a blocked Goal, remove a budget, or claim a pause based on elapsed time.

@@ -91,12 +91,7 @@ def build_bootstrap(*, title: str, path: Path, digest: str, has_goal: bool) -> s
     compact_title = " ".join(title.split())[:96]
     title_ref = json.dumps(compact_title, ensure_ascii=False)
     path_ref = json.dumps(str(path), ensure_ascii=False)
-    goal_instruction = ""
-    if has_goal:
-        goal_instruction = (
-            " Before other task work, recreate the unfinished Goal exactly as recorded, "
-            "using its positive remaining token budget when present."
-        )
+    goal_instruction = " Read Goal continuity and limits; do not restart a blocked Goal without explicit resume direction." if has_goal else ""
 
     candidates = [
         (
@@ -119,7 +114,7 @@ def build_bootstrap(*, title: str, path: Path, digest: str, has_goal: bool) -> s
     smallest = len(candidates[-1].encode("utf-8"))
     raise HandoffError(
         f"bootstrap is {smallest} bytes even after compaction; shorten the storage path "
-        f"below the {MAX_BOOTSTRAP_BYTES}-byte task prompt limit"
+        f"to meet this helper's {MAX_BOOTSTRAP_BYTES}-byte concision target"
     )
 
 
@@ -156,7 +151,12 @@ def _atomic_write(path: Path, content: str) -> bool:
             handle.write(encoded)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temp_path, path)
+        try:
+            os.link(temp_path, path)
+        except FileExistsError:
+            if path.is_symlink() or path.read_bytes() != encoded:
+                raise HandoffError(f"refusing concurrent different content at {path}")
+            return True
         try:
             path.chmod(0o600)
         except OSError:
@@ -168,6 +168,8 @@ def _atomic_write(path: Path, content: str) -> bool:
             pass
         temp_path.unlink(missing_ok=True)
         raise
+    finally:
+        temp_path.unlink(missing_ok=True)
     return False
 
 

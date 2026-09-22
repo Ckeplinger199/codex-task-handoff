@@ -98,7 +98,7 @@ class StoreHandoffTests(unittest.TestCase):
                 raw_packet=packet,
                 output_dir=root / "handoffs",
             )
-            self.assertIn("recreate the unfinished Goal", receipt.bootstrap)
+            self.assertIn("do not restart a blocked Goal", receipt.bootstrap)
 
     def test_missing_required_heading_is_rejected(self) -> None:
         with self.assertRaisesRegex(store_handoff.HandoffError, "Exact Next Action"):
