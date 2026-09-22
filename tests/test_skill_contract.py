@@ -1,65 +1,53 @@
 from __future__ import annotations
 
 import re
+import json
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL_DIR = ROOT / "skills" / "task-handoff"
-SKILL = SKILL_DIR / "SKILL.md"
-OPENAI_YAML = SKILL_DIR / "agents" / "openai.yaml"
 
 
 class SkillContractTests(unittest.TestCase):
-    def test_skill_frontmatter_is_discoverable(self) -> None:
-        content = SKILL.read_text(encoding="utf-8")
+    def test_installed_skill_contains_runnable_usage_example(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            installed = Path(temporary) / "installed skill"
+            shutil.copytree(SKILL_DIR, installed, ignore=shutil.ignore_patterns("__pycache__"))
+            skill = (installed / "SKILL.md").read_text()
+            for relative in re.findall(r"\]\((references/[^)]+)\)", skill):
+                self.assertTrue((installed / relative).is_file(), relative)
+            guide = (installed / "references/usage-guide.md").read_text()
+            example = re.search(r"```json\n(.*?)\n```", guide, re.DOTALL)
+            self.assertIsNotNone(example)
+            result = subprocess.run(
+                [sys.executable, str(installed / "scripts/decide_handoff.py")],
+                input=example.group(1), capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)["decision"], "recommend")
+
+    def test_skill_is_discoverable_and_current_contract_is_documented(self):
+        content = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         match = re.match(r"^---\n(.*?)\n---\n", content, re.DOTALL)
         self.assertIsNotNone(match)
-        frontmatter = match.group(1) if match else ""
-        self.assertIn("name: task-handoff", frontmatter)
-        description = next(
-            line.partition(":")[2].strip()
-            for line in frontmatter.splitlines()
-            if line.startswith("description:")
-        )
-        self.assertGreater(len(description), 40)
-        self.assertLessEqual(len(description), 1_024)
-        self.assertIn("token", description.lower())
-
-    def test_removed_unsupported_runtime_contracts_do_not_return(self) -> None:
-        content = SKILL.read_text(encoding="utf-8")
-        forbidden = (
-            "list_projects",
-            "set_thread_pinned",
-            "::created-thread",
-            "thinking:",
-        )
-        for term in forbidden:
+        self.assertIn("name: task-handoff", match.group(1))
+        for term in ("list_projects", "projectId", "clientThreadId", "::created-thread",
+                     "update_goal", "ACK", "transfer_handoff.py", "decide_handoff.py"):
             with self.subTest(term=term):
-                self.assertNotIn(term, content)
+                self.assertIn(term, content)
+        self.assertNotIn("ARCHIVE —", content)
+        self.assertNotIn("inherits the source workspace", content)
+        self.assertNotIn("cannot safely pause", content)
 
-    def test_supported_successor_contract_is_explicit(self) -> None:
-        content = SKILL.read_text(encoding="utf-8")
-        self.assertIn("Call `create_thread` exactly once", content)
-        self.assertIn("Omit `model`", content)
-        self.assertIn("one bounded `read_thread`", content)
-        self.assertIn("scripts/store_handoff.py", content)
-        self.assertNotIn("current model settings", content)
-
-    def test_active_goal_requires_pause_before_successor(self) -> None:
-        content = SKILL.read_text(encoding="utf-8")
-        self.assertIn("Never leave two active Goal loops", content)
-        self.assertIn("**Active:**", content)
-        self.assertIn("do not call `create_thread`", content)
-        self.assertIn("`/goal pause`", content)
-        self.assertIn("Budget-limited, usage-limited", content)
-        self.assertIn("do not create a successor Goal or silently remove the limit", content)
-
-    def test_ui_metadata_keeps_skill_invocable(self) -> None:
-        content = OPENAI_YAML.read_text(encoding="utf-8")
+    def test_metadata_keeps_skill_invocable(self):
+        content = (SKILL_DIR / "agents" / "openai.yaml").read_text(encoding="utf-8")
         self.assertIn('display_name: "Task Handoff"', content)
         self.assertIn("$task-handoff", content)
-        self.assertIn("allow_implicit_invocation: true", content)
 
 
 if __name__ == "__main__":
